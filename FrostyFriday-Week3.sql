@@ -58,7 +58,6 @@ $4 AS catch_phrase,
 $5 AS timestamp
 FROM @week3_basic/week3_data4_extra.csv;
 
-select * FROM @week3_basic/;
 
 -- 新しいファイルフォーマット作成
 CREATE FILE FORMAT csv_frosty_skip_header
@@ -101,7 +100,7 @@ FROM
   FROM @week3_basic/keywords.csv AS t
 )
 FILE_FORMAT = 'csv_frosty_skip_header'
-PATTERN = 'challenge_3/keywords.csv';
+PATTERN = 'challenge_3/keywords.csv';   -- パターンを固定で書く
 
 -- 中身確認
 select * from w3_basic_keywords;
@@ -127,9 +126,8 @@ FILE_FORMAT = 'csv_frosty_skip_header';
 select * from w3_basic_raw;
 
 -- create a view for the keyword files 
--- CONTAINSやEXISTSを使うパターン
-CREATE OR REPLACE VIEW w3_keywordfiles
-AS
+-- キーワードに引っかかるファイルの特定
+-- CONTAINSを使うパターン
 SELECT
 file_name,
 COUNT(*) AS number_of_rows
@@ -142,7 +140,24 @@ WHERE EXISTS
 )
 GROUP BY file_name;
 
+-- CONTAINの代わりにLIKE ANYを使ってみる
+-- クエリはこちらの方が速い（クエリプロファイルもチェック）
+SELECT
+file_name,
+COUNT(*) AS number_of_rows
+FROM w3_basic_raw
+WHERE file_name like any (select '%' || $3 || '%' from w3_basic_keywords)
+GROUP BY file_name;
 
+-- VIEW作成
+CREATE OR REPLACE VIEW w3_keywordfiles
+AS
+SELECT
+file_name,
+COUNT(*) AS number_of_rows
+FROM w3_basic_raw
+WHERE file_name like any (select '%' || $3 || '%' from w3_basic_keywords)
+GROUP BY file_name;
 
 -- 確認
 SELECT * FROM w3_keywordfiles;
@@ -221,7 +236,10 @@ select $1, $2, $3, $4, $5, $6, $7 from @frosty_3/week3_data2_stacy_forgot_to_upl
 
 //Creating the data table
 CREATE OR REPLACE TABLE CHALLENGE_3_DATA
-    (id number,
+    (
+    file_name VARCHAR,
+    file_row_number VARCHAR,
+    id number,
     first_name varchar,
     last_name varchar,
     catch_phrase varchar,
@@ -237,10 +255,24 @@ list @frosty_3;
 //公式
 //https://docs.snowflake.com/ja/sql-reference/sql/copy-into-table
 COPY INTO challenge_3_data
-FROM @frosty_3 pattern = '.*?week3_data.*?.csv';
+FROM
+(SELECT
+  metadata$filename AS file_name,
+  metadata$file_row_number AS number_of_rows,
+  $1 AS id,
+  $2 AS first_name,
+  $3 AS last_name,
+  $4 AS catch_phrase,
+  $5 AS timestamp
+FROM @frosty_3)
+PATTERN= '.*?week3_data.*?.csv';  -- パターンは正規表現でもできるよ
+--PATTERN= '.*?week3_data.?.csv';  -- これだとdataXのみ
 
 //チェックする
-select * from challenge_3_data;
+select file_name from challenge_3_data group by all;
+
+//結果を確認
+select * from challenge_3_result;
 
 ---- お掃除
 drop database frostyfriday;
