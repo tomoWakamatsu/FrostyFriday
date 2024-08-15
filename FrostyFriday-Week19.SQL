@@ -61,47 +61,9 @@ insert into testing_data (id, start_date, end_date) values (18, '11/29/2020', '1
 insert into testing_data (id, start_date, end_date) values (19, '12/10/2020', '7/31/2022');
 insert into testing_data (id, start_date, end_date) values (20, '11/1/2020', '10/23/2021');
 
+SET last_insert_query_id = LAST_QUERY_ID();
 
 table testing_data;   -- SELECT * FROMの代わりになりますよ。Week3のあれさんのテクニックですね
-
-
--- Pt1.ディメンションテーブルを作成するパターン
--- 2020-01-01 から始まる1500日間の日付を生成するという処理をしています
--- row_number() over(order by seq4()) の役割:
--- この部分は、各行に対して行番号を振るために使われています。ORDER BY seq4() によって、生成されたシーケンスに基づいて行番号が振られます。
--- 結果的に、このクエリでは、1から始まる連番が生成されます。
--- TO_CHAR https://docs.snowflake.com/en/sql-reference/date-time-input-output
--- YEAR* / DAY* / WEEK* / MONTH / QUARTER https://docs.snowflake.com/ja/sql-reference/functions/year
--- GENERATOR https://docs.snowflake.com/ja/sql-reference/functions/generator
-
-
-
-create or replace table date_dimension as 
-select dateadd(day, (row_number() over(order by seq4())) - 1, date('2020-01-01')) as date,  -- 2020/1/1から開始して1個づつ日付を加える
-       year(date) as year,                 -- dateの年部分
-       monthname(date) as month,           -- dateの月の名前（デフォルトでは3文字の月名 Ex:Jan）
-       to_char(date,'MMMM') as full_month_name,  -- フルネームをとってきたいときはこれでできる 
-       dayofmonth(date) day_of_month,    -- dateの月の部分（数値）
-       dayofweek(date) day_of_week,      -- dateの週の部分(数値)　2020/1/1は水曜日　0は日曜日
-       weekofyear(date) week_of_year,    -- dateの年の週（数値） -- 2020/1/1を１週とした時のカウント(日曜日までを1週とかぞえる)
-       dayofyear(date) date_of_year      -- dateの年の日付（数値）  -- 2020/1/1を1としてカウントアップ（365日まで)
-  from table(generator(rowcount => 366*100)); 　-- 便利なGenerator 100年後までの日付作っておくよ
-
-
--- ROW_NUMBERはORDERの挙動を確かめてみましょう
--- https://docs.snowflake.com/en/sql-reference/functions/row_number
--- ROW_NUMBERはORDER BYとセットじゃないと動かないです
--- シーケンスは、同時実行ステートメントを含むセッションおよびステートメント全体で一意の番号を生成するために使用されます。シーケンスは、主キーまたは一意の値を必要とする任意の列の値を生成するために使用できます。でもSnowflake では、ギャップのないシーケンス番号の生成は保証されません。生成された番号は必ずしも連続しているわけではありませんので注意
--- https://docs.snowflake.com/en/user-guide/querying-sequences
-
-select row_number() over(order by seq4()),
-       row_number() over(order by seq4())-1,
-       dateadd(day, (row_number() over(order by seq4())) - 1, date('2020-01-01')) as date
-from table(generator(rowcount => 10));
-
--- 何件できたか確認
-select count(1) from date_dimension;
-
 
 ---Pt1.
 -- DateDiff使うUDF
@@ -134,10 +96,45 @@ select id,
        calculate_businss_days(start_date, end_date, true) as including,   --含めるとき
        calculate_businss_days(start_date, end_date, false) as excluding   --含めない時
   from testing_data
- order by id;
+   order by id;
 
 
--- Pt2.土日考慮するバターンのUDF
+-- Pt2.ディメンションテーブルを作成するパターン(土日考慮するバターンのUDF)
+-- 2020-01-01 から始まる1500日間の日付を生成するという処理をしています
+-- row_number() over(order by seq4()) の役割:
+-- この部分は、各行に対して行番号を振るために使われています。ORDER BY seq4() によって、生成されたシーケンスに基づいて行番号が振られます。
+-- 結果的に、このクエリでは、1から始まる連番が生成されます。
+-- TO_CHAR https://docs.snowflake.com/en/sql-reference/date-time-input-output
+-- YEAR* / DAY* / WEEK* / MONTH / QUARTER https://docs.snowflake.com/ja/sql-reference/functions/year
+-- GENERATOR https://docs.snowflake.com/ja/sql-reference/functions/generator
+
+create or replace table date_dimension as 
+select dateadd(day, (row_number() over(order by seq4())) - 1, date('2020-01-01')) as date,  -- 2020/1/1から開始して1個づつ日付を加える
+       year(date) as year,                 -- dateの年部分
+       monthname(date) as month,           -- dateの月の名前（デフォルトでは3文字の月名 Ex:Jan）
+       to_char(date,'MMMM') as full_month_name,  -- フルネームをとってきたいときはこれでできる 
+       dayofmonth(date) day_of_month,    -- dateの月の部分（数値）
+       dayofweek(date) day_of_week,      -- dateの週の部分(数値)　2020/1/1は水曜日　0は日曜日
+       weekofyear(date) week_of_year,    -- dateの年の週（数値） -- 2020/1/1を１週とした時のカウント(日曜日までを1週とかぞえる)
+       dayofyear(date) date_of_year      -- dateの年の日付（数値）  -- 2020/1/1を1としてカウントアップ（365日まで)
+  from table(generator(rowcount => 366*100)); 　-- 便利なGenerator 100年後までの日付作っておくよ
+
+
+-- ROW_NUMBERはORDERの挙動を確かめてみましょう
+-- https://docs.snowflake.com/en/sql-reference/functions/row_number
+-- ROW_NUMBERはORDER BYとセットじゃないと動かないです
+-- シーケンスは、同時実行ステートメントを含むセッションおよびステートメント全体で一意の番号を生成するために使用されます。シーケンスは、主キーまたは一意の値を必要とする任意の列の値を生成するために使用できます。でもSnowflake では、ギャップのないシーケンス番号の生成は保証されません。生成された番号は必ずしも連続しているわけではありませんので注意
+-- https://docs.snowflake.com/en/user-guide/querying-sequences
+
+select row_number() over(order by seq4()),
+       row_number() over(order by seq4())-1,
+       dateadd(day, (row_number() over(order by seq4())) - 1, date('2020-01-01')) as date
+from table(generator(rowcount => 10));
+
+-- 何件できたか確認
+select count(1) from date_dimension;
+
+
 -- including(T/F)を引数にして、含めるか含めないか制御
 -- もし土日も考慮する場合は(6,0)は除く
 
@@ -152,17 +149,47 @@ create or replace function calculate_businss_days2 (start_date date, end_date da
   $$
   ;
 
--- 土日考慮したパターンになっているか確認
---2024/8/1-8/8は土日を挟むので6日もしくは7日になるはず
--- 確認
+-- 元々の要件も満たせているか確認
 select id,
        start_date, 
        end_date,
        calculate_businss_days2(start_date, end_date, true) as including,   --含めるとき
        calculate_businss_days2(start_date, end_date, false) as excluding   --含めない時
-  from testing_data
- order by id;
+  from testing_data 
+  where id=21;
 
+-- 土日を差し引いているか確認
+select id,
+       start_date, 
+       end_date,
+       calculate_businss_days(start_date, end_date, true) as including1,   --含めるとき
+       calculate_businss_days(start_date, end_date, false) as excluding1,   --含めない時
+       calculate_businss_days2(start_date, end_date, true) as including2,   --含めるとき
+       calculate_businss_days2(start_date, end_date, false) as excluding2   --含めない時
+  from testing_data 
+  where id=22;
+
+  
+
+
+ -- タイムトラベルで元に戻す(Insertが流れた時点)
+create or replace table testing_data as
+select *
+from testing_data at(statement => $last_insert_query_id)
+;
+
+table testing_data;
+
+-- 改めて全件
+select id,
+       start_date, 
+       end_date,
+       calculate_businss_days(start_date, end_date, true) as including1,   --含めるとき
+       calculate_businss_days(start_date, end_date, false) as excluding1,   --含めない時
+       calculate_businss_days2(start_date, end_date, true) as including2,   --含めるとき
+       calculate_businss_days2(start_date, end_date, false) as excluding2   --含めない時
+  from testing_data 
+  order by id;
  
 --*----------------------------------------------------------------
 -- お掃除------------------------------------------------------------
