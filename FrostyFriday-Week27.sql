@@ -5,7 +5,7 @@ Frosty Friday Week27
 SELECT EXCLUDE & RENAME
 */
 
--- SUSADMINを使います
+-- SYSADMINを使います
 use role sysadmin;
 use warehouse compute_wh;
 
