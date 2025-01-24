@@ -27,7 +27,9 @@ VALUES
 
 
 
-
+-- CAUTION!
+-- Copilotを使う場合、Createした直後ではまだ利用することができないので、MAX３〜４時間待つ必要があります
+-- https://docs.snowflake.com/en/user-guide/snowflake-copilot [Limitations]参照
 
 
 
@@ -106,10 +108,8 @@ table sales;
 
 -- ビューを確認、1行が削除されている
 -- ストリームを確認、1行が追加されている
-
--- でもff38_streamからデータがなくなっているよ。どうして！？
 -- https://docs.snowflake.com/ja/user-guide/streams-intro
-
+-- streamのデータはずっと保持されるわけではないので退避させる
 create or replace table ff38_deleted_sales (
     ID int,
     NAME string,
@@ -168,7 +168,7 @@ select
 from
     ff38_deleted_sales;
 
--- これをタスク化する
+-- これをStreamにデータが発生した場合に動くタスクにして、効率よくInsertしよう！
 
 -- SYSADMINでやる場合はTASK作成の権限をあらかじめ付与しておく
 USE ROLE ACCOUNTADMIN;
@@ -177,10 +177,10 @@ GRANT EXECUTE MANAGED TASK ON ACCOUNT TO ROLE SYSADMIN;
 
 USE ROLE SYSADMIN;
 
-
+-- TASKの作成
 CREATE OR REPLACE TASK process_deleted_sales
-  USER_TASK_MANAGED_INITIAL_WAREHOUSE_SIZE = 'XSMALL'
-  SCHEDULE = '1 minute'
+  TARGET_COMPLETION_INTERVAL='1 MINUTE'
+  WHEN system$stream_has_data('ff38_stream')    -- ここでStreamを指定
 AS
 -- streamのデータをテーブルに追加
 insert into ff38_deleted_sales(
@@ -205,13 +205,13 @@ from
 WHERE METADATA$ACTION = 'DELETE';   -- DELETEのみ
 
   
-ALTER TASK process_deleted_sales RESUME;   -- 定期実行させる
+ALTER TASK process_deleted_sales RESUME;   -- 始動させる
 
 SHOW TASKS;
 
 
 
--- employeeでも同じことができるかテスト
+-- salesのDELETEは試したので、employeeでも同じことができるかテスト
 select * from employees;
 
 -- Deleteしてみる
@@ -254,9 +254,8 @@ truncate table sales;
 truncate table ff38_deleted_sales;
 
 
-
-drop table ff38_deleted_sales;
-drop task process_deleted_sales;
-drop stream ff38_stream;
-
+-- cleaning
 drop database Frosty_DB;
+
+
+
